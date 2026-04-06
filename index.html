@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SGLS Live Executive Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8fafc;--surface:#ffffff;--text:#1e293b;--text-sub:#64748b;
+  --primary:#2563eb;--danger:#e11d48;--success:#10b981;--warning:#f59e0b;
+  --border:#e2e8f0;--font:"IBM Plex Sans Thai",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);padding:24px}
+.container{max-width:1200px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;border-bottom:2px solid var(--primary);padding-bottom:15px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:#fff;padding:20px;border-radius:12px;border:1px solid var(--border);text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.stat-val{font-size:32px;font-weight:700;margin-bottom:5px}
+.stat-lbl{font-size:12px;color:var(--text-sub);text-transform:uppercase}
+.layout{display:grid;grid-template-columns:1fr 1.2fr;gap:20px;margin-bottom:24px}
+.card{background:#fff;border-radius:12px;padding:24px;border:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.card-title{font-size:16px;font-weight:600;margin-bottom:18px;color:var(--primary)}
+.mod-item{margin-bottom:15px}
+.mod-info{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+.mod-bar-bg{height:10px;background:#f1f5f9;border-radius:5px;display:flex;overflow:hidden}
+.mod-bar-done{background:var(--success);height:100%}
+.mod-bar-pending{background:var(--danger);height:100%;opacity:0.5}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:12px;background:#f8fafc;color:var(--text-sub);border-bottom:1px solid var(--border)}
+td{padding:12px;border-bottom:1px solid var(--border)}
+.issue-link {color: var(--primary); font-family: 'IBM Plex Mono', monospace; font-weight: 600; cursor: pointer; text-decoration: none;}
+.issue-link:hover {text-decoration: underline;}
+.badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.b-done{background:#ecfdf5;color:var(--success)}
+.b-pending{background:#fff1f2;color:var(--danger)}
+.b-urgent{background:var(--danger);color:#fff}
+.loading-zone { text-align: center; padding: 100px; background: #fff; border-radius: 12px; border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div id="loader" class="loading-zone">
+    <h2 style="color:var(--primary)">🔄 กำลังดึงข้อมูล Real-time...</h2>
+    <p style="margin-top:10px; color:var(--text-sub)">โปรดรอสักครู่เพื่อให้ Server เริ่มทำงาน</p>
+  </div>
+
+  <div id="dashboard" style="display:none">
+    <header>
+      <div>
+        <h1>SGLS Project Quality Live Dashboard</h1>
+        <div style="font-size:12px; color:var(--success); display:flex; align-items:center; gap:5px; margin-top:5px">
+          <span style="height:8px; width:8px; background:var(--success); border-radius:50%; display:inline-block"></span>
+          Live Sync Enabled (Render Proxy)
+        </div>
+      </div>
+      <div id="updateTS" style="font-size:12px; color:var(--text-sub); text-align:right"></div>
+    </header>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-val" id="totalI">0</div><div class="stat-lbl">Issues Total</div></div>
+      <div class="stat-card"><div class="stat-val" id="totalD" style="color:var(--success)">0</div><div class="stat-lbl">Resolved</div></div>
+      <div class="stat-card"><div class="stat-val" id="totalP" style="color:var(--danger)">0</div><div class="stat-lbl">Backlog</div></div>
+      <div class="stat-card"><div class="stat-val" id="totalC" style="color:var(--warning)">0%</div><div class="stat-lbl">Success Rate</div></div>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <div class="card-title">Severity Analysis</div>
+        <table>
+          <thead><tr><th>Severity</th><th>Done</th><th>Pending</th></tr></thead>
+          <tbody id="sevBody"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-title">Module Performance</div>
+        <div id="modList"></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0; overflow:hidden">
+      <div style="padding:18px 24px; border-bottom:1px solid var(--border); font-weight:600; background:#fcfcfc">🚨 Critical Backlog</div>
+      <table style="min-width:1000px">
+        <thead>
+          <tr><th>Key</th><th>Severity</th><th>Module</th><th>Status</th><th>Assignee</th><th>Summary</th></tr>
+        </thead>
+        <tbody id="criticalBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const BACKEND_URL = "https://jira-new-dashboard.onrender.com/api/jira";
+const JIRA_URL = "https://appworks.atlassian.net/browse/";
+
+async function syncData() {
+  try {
+    const response = await fetch(BACKEND_URL);
+    if (!response.ok) throw new Error('API Sync Failed');
+    const data = await response.json();
+    
+    const issues = data.issues.map(i => ({
+      key: i.key,
+      summary: i.fields.summary,
+      status: i.fields.status.name,
+      priority: i.fields.priority ? i.fields.priority.name : 'Medium',
+      assignee: i.fields.assignee ? i.fields.assignee.displayName : 'Unassigned',
+      labels: i.fields.labels.length > 0 ? i.fields.labels : ['General'],
+      isDone: i.fields.status.statusCategory.key === 'done'
+    }));
+
+    renderUI(issues);
+  } catch (err) {
+    document.getElementById('loader').innerHTML = `<h2 style="color:red">❌ เชื่อมต่อล้มเหลว</h2><p>โปรดตรวจสอบ Server ที่ Render</p>`;
+  }
+}
+
+function renderUI(issues) {
+  const total = issues.length;
+  const done = issues.filter(i => i.isDone).length;
+  document.getElementById('totalI').innerText = total;
+  document.getElementById('totalD').innerText = done;
+  document.getElementById('totalP').innerText = total - done;
+  document.getElementById('totalC').innerText = Math.round((done/total)*100) + '%';
+
+  const sevs = ['Highest', 'High', 'Medium', 'Low'];
+  document.getElementById('sevBody').innerHTML = sevs.map(s => {
+    const group = issues.filter(i => i.priority === s);
+    if(group.length === 0) return '';
+    const dCount = group.filter(i => i.isDone).length;
+    const pCount = group.length - dCount;
+    return `<tr><td><strong>${s}</strong></td><td><span class="badge b-done">${dCount}</span></td><td><span class="badge ${pCount>0?'b-pending':''}">${pCount}</span></td></tr>`;
+  }).join('');
+
+  const mods = {};
+  issues.forEach(i => { i.labels.forEach(l => {
+    if(!mods[l]) mods[l] = { done: 0, pending: 0, total: 0 };
+    mods[l].total++; i.isDone ? mods[l].done++ : mods[l].pending++;
+  })});
+  document.getElementById('modList').innerHTML = Object.entries(mods).sort((a,b)=>b[1].total-a[1].total).map(([name, stat]) => {
+    const dPct = (stat.done / stat.total) * 100;
+    return `<div class="mod-item"><div class="mod-info"><span>${name}</span><b>${stat.done}/${stat.pending}</b></div>
+    <div class="mod-bar-bg"><div class="mod-bar-done" style="width:${dPct}%"></div><div class="mod-bar-pending" style="width:${100-dPct}%"></div></div></div>`;
+  }).join('');
+
+  const criticals = issues.filter(i => !i.isDone && (i.priority === 'Highest' || i.priority === 'High'));
+  document.getElementById('criticalBody').innerHTML = criticals.map(i => `
+    <tr><td><span class="issue-link" onclick="window.open('${JIRA_URL}${i.key}','_blank')">${i.key}</span></td>
+    <td><span class="badge b-urgent">${i.priority}</span></td><td>${i.labels[0]}</td><td><span class="badge b-pending">${i.status}</span></td>
+    <td>${i.assignee}</td><td style="color:var(--text-sub)">${i.summary}</td></tr>`).join('');
+
+  document.getElementById('loader').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('updateTS').innerText = `Sync: ${new Date().toLocaleString('th-TH')}`;
+}
+
+syncData();
+setInterval(syncData, 300000);
+</script>
+</body>
+</html>
